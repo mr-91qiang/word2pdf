@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 func fileIsExist(path string) bool {
@@ -16,6 +19,43 @@ func fileIsExist(path string) bool {
 		return false
 	}
 	return true
+}
+
+func CmdToPdf(dir string, entry os.DirEntry, outDir string) {
+	if entry.IsDir() {
+		return
+	}
+	file, err := os.ReadFile(dir + "\\" + entry.Name())
+	if err != nil {
+		return
+	}
+	ext := filepath.Ext(entry.Name())
+	saveFile, err := ioutil.TempFile("", entry.Name()+ext)
+	if err != nil {
+		log.Println("文件类型获取失败")
+		return
+	}
+
+	defer os.Remove(saveFile.Name())
+	defer saveFile.Close()
+	reader := bytes.NewReader(file)
+	_, err = io.Copy(saveFile, reader)
+	if err != nil {
+		log.Println(err)
+		log.Println("アップロードファイルの書き込みに失敗しました。")
+		return
+	}
+
+	word := new(Word)
+	log.Println("input file: " + saveFile.Name())
+	log.Println("output dir: " + outDir)
+	//PDF変換
+	outFilePath, err := word.Export(saveFile.Name(), outDir)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	log.Println("output file: " + outFilePath)
 }
 
 func export(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +146,36 @@ func root(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+
+	var dir, fileName string
+	flag.StringVar(&dir, "d", "", "路径")
+	flag.StringVar(&fileName, "n", "", "文件名")
+	flag.Parse()
+	fmt.Println(dir, fileName)
+	if dir != "" {
+		readDir, err := os.ReadDir(dir)
+		if err != nil {
+			log.Println("os.ReadDir err " + err.Error())
+			return
+		}
+		var outDir string
+		for i := 0; i < 100; i++ {
+			err := os.Mkdir(dir+"_out"+fmt.Sprint(i), os.ModeDir)
+			if err != nil {
+				continue
+			} else {
+				outDir = dir + "_out" + fmt.Sprint(i)
+				break
+			}
+		}
+		for _, file := range readDir {
+			name := file.Name()
+			if strings.HasSuffix(name, ".doc") || strings.HasSuffix(name, ".docx") {
+				fmt.Println("to pdf", name)
+				CmdToPdf(dir, file, outDir)
+			}
+		}
+	}
 	port := "8000"
 	if len(os.Args) > 1 {
 		port = os.Args[1]
